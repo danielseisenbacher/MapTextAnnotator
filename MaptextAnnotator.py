@@ -21,12 +21,14 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
-from qgis.core import QgsVectorLayer, QgsField, QgsProject, QgsRasterLayer, QgsGeometry, QgsCoordinateTransform
-# Initialize Qt resources from file resources.py
-from .resources import *
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
+from qgis import processing
+from qgis.PyQt.QtGui import QIcon, QPixmap
+from qgis.PyQt.QtWidgets import QAction, QGraphicsScene, QGraphicsPixmapItem
+from qgis.core import QgsVectorLayer, QgsFeatureRequest, QgsField, QgsProject, QgsRasterLayer, QgsGeometry, QgsCoordinateTransform, QgsPointXY, Qgis, QgsCoordinateReferenceSystem, QgsProcessingFeatureSourceDefinition
+from osgeo import gdal, ogr
+import numpy as np
+
 
 # Import the code for the DockWidget
 from .MaptextAnnotator_dockwidget import MaptextAnnotatorDockWidget
@@ -46,6 +48,7 @@ class MaptextAnnotator:
         """
         # Save reference to the QGIS interface
         self.iface = iface
+        self.canvas = iface.mapCanvas()
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -228,13 +231,27 @@ class MaptextAnnotator:
                 self.dockwidget = MaptextAnnotatorDockWidget()
 
                 self.dockwidget.generateLayer.clicked.connect(self.createPolyLayer)
-                self.dockwidget.annotationLayerCombo.layerChanged.connect(self.updateDatasetStats)  # react to changes
+                self.dockwidget.annotationLayerCombo.layerChanged.connect(self.manageLayerConnections)  # react to changes
 
             # connect to provide cleanup on closing of dockwidget
+
+            scene = QGraphicsScene()
+            pixmap = QPixmap(":/plugins/MaptextAnnotator/example.png")
+            pixmap_item = QGraphicsPixmapItem(pixmap)
+            scene.addItem(pixmap_item)
+            self.dockwidget.graphicsView.setScene(scene)
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
-            self.updateDatasetStats() # inital run for startup
+            self.manageLayerConnections()
             self.dockwidget.show()
+            self.dockwidget.graphicsView.fitInView(pixmap_item, Qt.KeepAspectRatio)
+
+            # dont show instructions when not toggled
+            self.dockwidget.groupBox.toggled.connect(self.dockwidget.graphicsView.setVisible)
+            self.dockwidget.groupBox.toggled.connect(self.dockwidget.instruction1.setVisible)
+            self.dockwidget.groupBox.toggled.connect(self.dockwidget.instruction2.setVisible)
+            self.dockwidget.groupBox.toggled.connect(self.dockwidget.instruction3.setVisible)
+
 
     def createPolyLayer(self):
         count = 2
@@ -256,7 +273,7 @@ class MaptextAnnotator:
         QgsProject.instance().addMapLayer(vl)
 
 
-    def updateDatasetStats(self):
+    def manageLayerConnections(self):
         """
         This function reacts to changes in the Annotation Polygon Layer Combobox
         """
@@ -264,8 +281,17 @@ class MaptextAnnotator:
         # disconnect from old layer
         if self.current_annotation_layer is not None:
             try:
-                self.current_annotation_layer.featureAdded.disconnect(self.gatherLayerStats)
-                self.current_annotation_layer.featureDeleted.disconnect(self.gatherLayerStats)
+                # CURRENT ANNOTATION INFO FOR LAST CREATED FEATURE
+                self.current_annotation_layer.featureAdded.disconnect(self.updateAnnotationInfo)
+                self.current_annotation_layer.featureDeleted.disconnect(self.updateAnnotationInfo)
+
+                # CURRENT ANNOTATION INFO FOR SELECTED FEATURE
+                self.current_annotation_layer.selectionChanged.disconnect(self.updateSelectedAnnotation)
+
+                # DATASET INFO STATISTICS
+                self.current_annotation_layer.featureAdded.disconnect(self.updateDatasetStats)
+                self.current_annotation_layer.featureDeleted.disconnect(self.updateDatasetStats)
+
             except:
                 pass
             self.current_annotation_layer = None
@@ -279,11 +305,22 @@ class MaptextAnnotator:
             return
 
         self.current_annotation_layer = current_layer
-        current_layer.featureAdded.connect(self.gatherLayerStats)
-        current_layer.featureDeleted.connect(self.gatherLayerStats)
+
+        # CURRENT ANNOATION INFO
+        self.updateAnnotationInfo(selection_mode=True)
+        current_layer.featureAdded.connect(self.updateAnnotationInfo)
+        current_layer.featureDeleted.connect(self.updateAnnotationInfo)
+
+        # CURRENT ANNOTATION INFO FOR SELECTED FEATURE
+        self.current_annotation_layer.selectionChanged.connect(self.updateSelectedAnnotation)
+
+        # DATASET INFO STATISTICS
+        self.updateDatasetStats() # initialize the layer stat comboboxes
+        current_layer.featureAdded.connect(self.updateDatasetStats)
+        current_layer.featureDeleted.connect(self.updateDatasetStats)
 
 
-    def gatherLayerStats(self, fid):
+    def updateDatasetStats(self, fid=None):
         """
         This function reacts to changes in the currently selected Annotation Polygon Layer Combobox layer to update
         stats.
@@ -291,13 +328,11 @@ class MaptextAnnotator:
         if not self.current_annotation_layer:
             return
 
-        # link the image that is used to for label creation
-        self.insert_image_reference(fid)
-
         # overall layer stats
         label_count = self.current_annotation_layer.featureCount()
         phrases = sum(1 for f in self.current_annotation_layer.getFeatures() if not f["Link to previous Word"])
         images = self.current_annotation_layer.uniqueValues(self.current_annotation_layer.fields().indexOf("Reference Image"))
+        images.discard("None found") # ignore annotations without corresponding annotation images
         image_count = len(images)
 
         self.dockwidget.labelCountLabel.setText(str(label_count))
@@ -305,11 +340,73 @@ class MaptextAnnotator:
         self.dockwidget.imageCountLabel.setText(str(image_count))
 
 
+    def updateAnnotationInfo(self, fid=None, selection_mode=False):
+        """
+        This function reacts to changes in the currently selected Annotation Polygon Layer Combobox layer to update
+        stats.
+        """
+        if not self.current_annotation_layer:
+            return
+
+        if selection_mode:
+            self.dockwidget.annotationTitleLabel.setText("Selected Annotation")
+        else:
+            self.dockwidget.annotationTitleLabel.setText("Last Created Annotation")
+
+        if not fid:
+            self.showAnnotationInfoDefault()
+            return
+
+        # ANNOTATION IMAGE NAME
+        topmost_rasterlayer = self.insert_image_reference(fid)
+
+        # WORD AND PHRASE TRANSCRIPTION
+        self.insert_transcriptions(fid)
+
+        # Bounding Geometry Coordinates in Raster Coordinates
+        self.insert_vertices(topmost_rasterlayer, fid)
+
+        # Minimum Bounding Box and Minimum Oriented Bounding Box in Raster Coordinates
+        self.insert_bboxes(topmost_rasterlayer, fid)
+
+        # centroid coordinates in lat lon
+        self.insert_centroid_coordinates(fid)
+
+        # bezier image coordinates
+        self.insert_beziers(topmost_rasterlayer, fid)
+
+        # calculate altitude metrics
+        self.calculate_altitude_stats(fid)
+
+        # calculate slope metrics
+        self.calculate_slope_stats(fid)
+
+        # calculate edge complexity
+        self.calculate_edge_stats(topmost_rasterlayer, fid)
+
+
+    def showAnnotationInfoDefault(self):
+        self.dockwidget.meanAltitudeLabel.setText("None Selected")
+        self.dockwidget.meanSlopeLabel.setText("None Selected")
+        self.dockwidget.complexityLabel.setText("None Selected")
+        self.dockwidget.wordTranscriptionLabel.setText("None Selected")
+        self.dockwidget.phraseTranscriptionLabel.setText("None Selected")
+
+
+    def updateSelectedAnnotation(self, selected, deselected, clearAndSelect):
+        if len(selected) != 1:
+            # Only show the selected one if 1 item is selected, otherwise show none selected
+            self.updateAnnotationInfo(selection_mode=True) # default to none
+            return
+
+        self.updateAnnotationInfo(selected[0], selection_mode=True)
+        return
+
+
     def insert_image_reference(self, fid):
         """
         Check what is the layer on top of which is being annotated
         """
-
         # first check which layers intersects with a given region
         feature = self.current_annotation_layer.getFeature(fid)
         geom = feature.geometry()
@@ -348,11 +445,12 @@ class MaptextAnnotator:
             if self.root.findLayer(layer.id()).isVisible()
         ]
 
+        topmost_layer = None
+
         image_reference = "None found"
         if visible_intersecting:
             # Layer order from bottom -> top
             layer_order = QgsProject.instance().layerTreeRoot().layerOrder()
-            print(layer_order)
 
             # Find the visible intersecting layer that is highest in the stack
             topmost_layer = min(
@@ -362,13 +460,539 @@ class MaptextAnnotator:
 
             image_reference = topmost_layer.name()
 
-        self.current_annotation_layer.startEditing()
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
 
         field_idx = self.current_annotation_layer.fields().indexOf("Reference Image")
         self.current_annotation_layer.changeAttributeValue(feature.id(), field_idx, image_reference)
 
-        self.current_annotation_layer.commitChanges()
+        # self.current_annotation_layer.commitChanges()
+        # dont commit --> let user commit - otherwise we're trapped in a loop
+
+        return topmost_layer
+
+
+    def insert_transcriptions(self, fid):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        try:
+            word = current_feature["Word Transcription"]
+        except:
+            return
+
+        all_features = sorted(
+            list(self.current_annotation_layer.getFeatures()),
+            key=lambda f: f["Create Date"]
+        )
+        current_index = next(i for i, f in enumerate(all_features) if f.id() == fid)
+
+        start = current_index
+        while start > 0 and all_features[start]["Link to previous Word"]:
+            start -= 1
+
+        end = current_index
+        while end + 1 < len(all_features) and all_features[end + 1]["Link to previous Word"]:
+            end += 1
+
+        phrase = " ".join(f["Word Transcription"] for f in all_features[start:end + 1])
+
+        self.dockwidget.phraseTranscriptionLabel.setText(phrase)
+        self.dockwidget.wordTranscriptionLabel.setText(word)
+
+
+    def convert_to_raster_coordinates(self, raster_layer, fid):
+        vertex_data = []
+        current_feature = self.current_annotation_layer.getFeature(fid)
+
+        transform = QgsCoordinateTransform(
+            self.current_annotation_layer.crs(),
+            raster_layer.crs() if raster_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs(),
+            QgsProject.instance()
+        )
+
+        extent = raster_layer.extent()
+        px_w = raster_layer.rasterUnitsPerPixelX()
+        px_h = raster_layer.rasterUnitsPerPixelY()
+        provider = raster_layer.dataProvider()
+
+        for vertex in current_feature.geometry().vertices():
+            # Convert vertex to raster CRS
+            pt = transform.transform(QgsPointXY(vertex.x(), vertex.y()))
+
+            # Calculate raster pixel coordinates (Column, Row)
+            col = int((pt.x() - extent.xMinimum()) / px_w)
+            row = int((extent.yMaximum() - pt.y()) / px_h)
+
+            # Save column, row, and pixel value
+            vertex_data.extend([col, row])
+
+        return vertex_data
+
+
+    def insert_vertices(self, raster_layer, fid):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        vertex_data = []
+        geom = current_feature.geometry()
+
+        if raster_layer and geom:
+            # Transform from annotation layer CRS to raster CRS
+            for vertex in geom.vertices():
+                pt = QgsPointXY(vertex.x(), vertex.y())
+                vertex_data.append(pt)
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        field_idx = self.current_annotation_layer.fields().indexOf("Bounding Points")
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, str(vertex_data))
+
+
+    def insert_bboxes(self, raster_layer, fid):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        vertex_data_bbox = []
+        vertex_data_obbox = []
+
+        if raster_layer and current_feature.geometry():
+            # minimum bb
+            geom = current_feature.geometry()
+            bbox = geom.boundingBox()
+            xmin, xmax, ymin, ymax = bbox.xMinimum(), bbox.xMaximum(), bbox.yMinimum(), bbox.yMaximum()
+            for point in [QgsPointXY(xmin, ymin), QgsPointXY(xmax, ymax)]:
+                vertex_data_bbox.append(point)
+
+            # oriented minimum bounding box
+            obb_geom, area, angle, width, height = geom.orientedMinimumBoundingBox()
+            obb_polygon = obb_geom.asPolygon()
+            if obb_polygon:
+                for point in obb_polygon[0][:-1]:  # skip closing duplicate vertex
+                    pt = QgsPointXY(point.x(), point.y())
+                    vertex_data_obbox.append(pt)
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        field_idx = self.current_annotation_layer.fields().indexOf("Bounding Box")
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, str(vertex_data_bbox))
+
+        obb_field_idx = self.current_annotation_layer.fields().indexOf("Oriented Bounding Box")
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), obb_field_idx, str(vertex_data_obbox))
+
+
+    def insert_centroid_coordinates(self, fid):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        geom = current_feature.geometry()
+
+        if geom is None or geom.isEmpty():
+            print("Broken geometry detected")
+            return
+
+        # calculate centroid coordinates
+        centroid = geom.centroid().asPoint()
+        lon = centroid.x()
+        lat = centroid.y()
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        lat_field_idx = self.current_annotation_layer.fields().indexOf("Lat")
+        lon_field_idx = self.current_annotation_layer.fields().indexOf("Lon")
+
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), lat_field_idx, lat)
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), lon_field_idx, lon)
+
+
+    def interpolate_points(self, p1, p2):
+        p_mid1 = QgsPointXY(p1.x() + (p2.x() - p1.x()) / 3, p1.y() + (p2.y() - p1.y()) / 3)
+        p_mid2 = QgsPointXY(p1.x() + 2 * (p2.x() - p1.x()) / 3, p1.y() + 2 * (p2.y() - p1.y()) / 3)
+        return [p1, p_mid1, p_mid2, p2]
+
+
+    def get_bezier_points(self, points):
+        if len(points) == 2:
+            return self.interpolate_points(points[0], points[1])
+        elif len(points) == 3:
+            d1 = (points[1][0] - points[0][0]) ** 2 + (points[1][1] - points[0][1]) ** 2
+            d2 = (points[2][0] - points[1][0]) ** 2 + (points[2][1] - points[1][1]) ** 2
+            if d1 >= d2:
+                mid = ((points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2)
+                return [points[0], mid, points[1], points[2]]
+            else:
+                mid = ((points[1][0] + points[2][0]) / 2, (points[1][1] + points[2][1]) / 2)
+                return [points[0], points[1], mid, points[2]]
+
+
+    def interpolate_bezier(self, points):
+        if len(points) == 4:
+            return points[0], points[1], points[2], points[3]
+
+        pts = np.array([[p.x(), p.y()] for p in points])
+        n = len(pts)
+
+        # chord-length parameterization
+        dists = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+        cumdist = np.concatenate([[0.0], np.cumsum(dists)])
+        t = cumdist / cumdist[-1]
+
+        P0 = pts[0]
+        P3 = pts[-1]
+
+        # build least-squares system for control points P1, P2
+        A = np.zeros((n, 2))
+        b = np.zeros((n, 2))
+        for i in range(n):
+            ti = t[i]
+            b1 = 3 * (1 - ti) ** 2 * ti
+            b2 = 3 * (1 - ti) * ti ** 2
+            A[i] = [b1, b2]
+            b[i] = pts[i] - ((1 - ti) ** 3) * P0 - (ti ** 3) * P3
+
+        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+        P1, P2 = sol[0], sol[1]
+
+        return (
+            QgsPointXY(P0[0], P0[1]),
+            QgsPointXY(P1[0], P1[1]),
+            QgsPointXY(P2[0], P2[1]),
+            QgsPointXY(P3[0], P3[1]),
+        )
+
+
+    def insert_beziers(self, raster_layer, fid):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        vertex_data = [vertex for vertex in current_feature.geometry().vertices()][:-1] # last one is doubled
+        print(len(vertex_data))
+
+        if len(vertex_data) < 4:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "Annotation must have at least 4 vertices. This feature will be ignored while annotation export.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        if len(vertex_data) % 2 != 0:
+            print(len(vertex_data))
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "Annotation must have the same number of vertices on the upper and lower edge of the word. This feature will be ignored while annotation export.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        # convert to raster coordinates
+        transform = QgsCoordinateTransform(
+            self.current_annotation_layer.crs(),
+            raster_layer.crs() if raster_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs(),
+            QgsProject.instance()
+        )
+
+        vertex_data_transformed = [transform.transform(QgsPointXY(vertex.x(), vertex.y())) for vertex in vertex_data]
+
+        if len(vertex_data_transformed) == 4:
+            lower_bezier = self.get_bezier_points(vertex_data_transformed[0:2])
+            upper_bezier = self.get_bezier_points(vertex_data_transformed[2:4])
+        elif len(vertex_data_transformed) == 6:
+            lower_bezier = self.get_bezier_points(vertex_data_transformed[0:3])
+            upper_bezier = self.get_bezier_points(vertex_data_transformed[3:6])
+        else:
+            half = len(vertex_data_transformed) // 2
+            lower_bezier = vertex_data_transformed[0:half]
+            upper_bezier = vertex_data_transformed[half:]
+
+        lower_bezier = self.interpolate_bezier(lower_bezier)
+        upper_bezier = self.interpolate_bezier(upper_bezier)
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        upper_field_idx = self.current_annotation_layer.fields().indexOf("Upper Bezier")
+        lower_field_idx = self.current_annotation_layer.fields().indexOf("Lower Bezier")
+
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), upper_field_idx, str(lower_bezier))
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), lower_field_idx, str(upper_bezier))
+
+
+    def calculate_altitude_stats(self, fid):
+        """
+        Calculate mean, max, median, min altitude from a raster for a polygon area.
+        """
+
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        annotation_crs = self.current_annotation_layer.crs()
+
+        dem_layer_name = self.dockwidget.demLayerCombo.currentText()
+
+        if len(dem_layer_name) == 0:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "No DEM Layer Found. Altitude statistics calculation will not be performed.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        dem_layer = QgsProject.instance().mapLayersByName(dem_layer_name)[0]
+
+        raster_crs = dem_layer.crs() if dem_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs()
+        geom = current_feature.geometry()
+
+        if raster_crs != self.current_annotation_layer.crs():
+            transform = QgsCoordinateTransform(
+                annotation_crs,
+                raster_crs,
+                QgsProject.instance()
+            )
+
+            geom.transform(transform)
+
+        source = dem_layer.dataProvider().dataSourceUri()
+        ds = gdal.Open(source)
+        band = ds.GetRasterBand(1)
+        nodata = band.GetNoDataValue()
+
+        gt = ds.GetGeoTransform()
+        px_w = gt[1]
+        px_h = -gt[5]
+
+        bbox = geom.boundingBox()
+
+        # pixel offsets for bounding box
+        col_min = int((bbox.xMinimum() - gt[0]) / px_w)
+        col_max = int((bbox.xMaximum() - gt[0]) / px_w) + 1
+        row_min = int((gt[3] - bbox.yMaximum()) / px_h)
+        row_max = int((gt[3] - bbox.yMinimum()) / px_h) + 1
+
+        col_min = max(col_min, 0)
+        row_min = max(row_min, 0)
+        col_max = min(col_max, ds.RasterXSize)
+        row_max = min(row_max, ds.RasterYSize)
+
+        width = col_max - col_min
+        height = row_max - row_min
+        if width <= 0 or height <= 0:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "DEM Input is not valid. Check DEM Layer Combobox",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return None
+
+        data = band.ReadAsArray(col_min, row_min, width, height).astype(float)
+
+        # Build mask: rasterize the polygon to match this window
+        mem_drv = gdal.GetDriverByName('MEM')
+        mask_ds = mem_drv.Create('', width, height, 1, gdal.GDT_Byte)
+
+        # geotransform for the subset window
+        sub_gt = (
+            gt[0] + col_min * px_w, px_w, gt[2],
+            gt[3] - row_min * px_h, gt[4], -px_h
+        )
+        mask_ds.SetGeoTransform(sub_gt)
+        mask_ds.SetProjection(ds.GetProjection())
+
+        ogr_drv = ogr.GetDriverByName('Memory')
+        ogr_ds = ogr_drv.CreateDataSource('mem')
+        layer = ogr_ds.CreateLayer('poly', srs=None)
+        feat = ogr.Feature(layer.GetLayerDefn())
+        ogr_geom = ogr.CreateGeometryFromWkt(geom.asWkt())
+        feat.SetGeometry(ogr_geom)
+        layer.CreateFeature(feat)
+
+        gdal.RasterizeLayer(mask_ds, [1], layer, burn_values=[1])
+        mask = mask_ds.GetRasterBand(1).ReadAsArray().astype(bool)
+
+        valid = mask
+        if nodata is not None:
+            valid = valid & (data != nodata)
+
+        values = data[valid]
+        if values.size == 0:
+            return None
+
+        altitude_stats = {
+            'Mean Altitude': float(np.mean(values)),
+            'Max Altitude': float(np.max(values)),
+            'Median Altitude': float(np.median(values)),
+            'Min Altitude': float(np.min(values)),
+        }
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        for field_name, value in altitude_stats.items():
+            field_idx = self.current_annotation_layer.fields().indexOf(field_name)
+            self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, round(value, 2))
+
+        self.dockwidget.meanAltitudeLabel.setText(str(round(altitude_stats['Mean Altitude'], 2)))
+        return
+
+    def calculate_edge_stats(self, topmost_rasterlayer, fid):
+        """
+        Calculate edge complexity from the topmost rasterlayer to get an idea
+        of how convoluted a certain map extent looks under the label background.
+        Uses Canny edge detection over the true polygon extent (masked),
+        not just its bounding box.
+        """
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        annotation_crs = self.current_annotation_layer.crs()
+
+        if topmost_rasterlayer is None:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "No Raster Layer Found. Edge complexity calculation will not be performed.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return None
+
+        processing.run(
+            "gdal:cliprasterbymasklayer",
+           {
+                'INPUT': '/home/seisi/Desktop/Masterarbeit/Masterarbeit/Data/JPG/3LA_4651-1_1874_ref.jpg',
+                'MASK': QgsProcessingFeatureSourceDefinition(
+                    'memory?geometry=Polygon&crs=EPSG:4326&field=Word%20Transcription:string(0,0)&field=Phrase%20Transcription:string(0,0)&field=Reference%20Image:string(0,0)&field=Lat:double(0,0)&field=Lon:double(0,0)&field=Bounding%20Points:string(0,0)&field=Bounding%20Box:string(0,0)&field=Oriented%20Bounding%20Box:string(0,0)&field=Upper%20Bezier:string(0,0)&field=Lower%20Bezier:string(0,0)&field=Mean%20Altitude:double(0,0)&field=Median%20Altitude:double(0,0)&field=Max%20Altitude:double(0,0)&field=Min%20Altitude:double(0,0)&field=Mean%20Slope:double(0,0)&field=Median%20Slope:double(0,0)&field=Max%20Slope:double(0,0)&field=Min%20Slope:double(0,0)&field=Complexity:double(0,0)&field=Word%20uuid:string(0,0)&field=Link%20to%20previous%20Word:boolean(0,0)&field=Create%20Date:datetime(0,0)&uid={d2e23a6d-6ecf-44ee-b20a-1bad950cfe8f}',
+                    selectedFeaturesOnly=False,
+                    featureLimit=-1,
+                    filterExpression='@id = 10',
+                    geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
+                ),
+                'SOURCE_CRS': QgsCoordinateReferenceSystem('EPSG:25833'),
+                'TARGET_CRS': QgsCoordinateReferenceSystem('EPSG:25833'),
+                'TARGET_EXTENT': None,
+                'NODATA': None,
+                'ALPHA_BAND': False,
+                'CROP_TO_CUTLINE': True,
+                'KEEP_RESOLUTION': False,
+                'SET_RESOLUTION': False,
+                'X_RESOLUTION': None,
+                'Y_RESOLUTION': None,
+                'MULTITHREADING': False,
+                'OPTIONS': '',
+                'DATA_TYPE': 0,
+                'EXTRA': '',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+           }
+        )
 
 
 
 
+
+    def calculate_slope_stats(self, fid):
+        """
+        Calculate mean, max, median, min slope from a raster for a polygon area.
+        """
+
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        annotation_crs = self.current_annotation_layer.crs()
+
+        slope_layer_name = self.dockwidget.slopeLayerCombo.currentText()
+
+        if len(slope_layer_name) == 0:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "No Slope Layer Found. Slope statistics calculation will not be performed.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        slope_layer = QgsProject.instance().mapLayersByName(slope_layer_name)[0]
+
+        raster_crs = slope_layer.crs() if slope_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs()
+        geom = current_feature.geometry()
+
+        if raster_crs != self.current_annotation_layer.crs():
+            transform = QgsCoordinateTransform(
+                annotation_crs,
+                raster_crs,
+                QgsProject.instance()
+            )
+
+            geom.transform(transform)
+
+        source = slope_layer.dataProvider().dataSourceUri()
+        ds = gdal.Open(source)
+        band = ds.GetRasterBand(1)
+        nodata = band.GetNoDataValue()
+
+        gt = ds.GetGeoTransform()
+        px_w = gt[1]
+        px_h = -gt[5]
+
+        bbox = geom.boundingBox()
+
+        # pixel offsets for bounding box
+        col_min = int((bbox.xMinimum() - gt[0]) / px_w)
+        col_max = int((bbox.xMaximum() - gt[0]) / px_w) + 1
+        row_min = int((gt[3] - bbox.yMaximum()) / px_h)
+        row_max = int((gt[3] - bbox.yMinimum()) / px_h) + 1
+
+        col_min = max(col_min, 0)
+        row_min = max(row_min, 0)
+        col_max = min(col_max, ds.RasterXSize)
+        row_max = min(row_max, ds.RasterYSize)
+
+        width = col_max - col_min
+        height = row_max - row_min
+        if width <= 0 or height <= 0:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "Slope Input is not valid. Check Slope Layer Combobox",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return None
+
+        data = band.ReadAsArray(col_min, row_min, width, height).astype(float)
+
+        # Build mask: rasterize the polygon to match this window
+        mem_drv = gdal.GetDriverByName('MEM')
+        mask_ds = mem_drv.Create('', width, height, 1, gdal.GDT_Byte)
+
+        # geotransform for the subset window
+        sub_gt = (
+            gt[0] + col_min * px_w, px_w, gt[2],
+            gt[3] - row_min * px_h, gt[4], -px_h
+        )
+        mask_ds.SetGeoTransform(sub_gt)
+        mask_ds.SetProjection(ds.GetProjection())
+
+        ogr_drv = ogr.GetDriverByName('Memory')
+        ogr_ds = ogr_drv.CreateDataSource('mem')
+        layer = ogr_ds.CreateLayer('poly', srs=None)
+        feat = ogr.Feature(layer.GetLayerDefn())
+        ogr_geom = ogr.CreateGeometryFromWkt(geom.asWkt())
+        feat.SetGeometry(ogr_geom)
+        layer.CreateFeature(feat)
+
+        gdal.RasterizeLayer(mask_ds, [1], layer, burn_values=[1])
+        mask = mask_ds.GetRasterBand(1).ReadAsArray().astype(bool)
+
+        valid = mask
+        if nodata is not None:
+            valid = valid & (data != nodata)
+
+        values = data[valid]
+        if values.size == 0:
+            return None
+
+        altitude_stats = {
+            'Mean Slope': float(np.mean(values)),
+            'Max Slope': float(np.max(values)),
+            'Median Slope': float(np.median(values)),
+            'Min Slope': float(np.min(values)),
+        }
+
+        if not self.current_annotation_layer.isEditCommandActive():
+            self.current_annotation_layer.startEditing()
+
+        for field_name, value in altitude_stats.items():
+            field_idx = self.current_annotation_layer.fields().indexOf(field_name)
+            self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, round(value, 2))
+
+        self.dockwidget.meanSlopeLabel.setText(str(round(altitude_stats['Mean Slope'], 2)))
+        return

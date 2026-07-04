@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>551</width>
-    <height>492</height>
+    <height>714</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,22 +15,103 @@
   </property>
   <widget class="QWidget" name="dockWidgetContents">
    <layout class="QGridLayout" name="gridLayout">
-    <item row="1" column="0">
-     <widget class="QLabel" name="label_2">
+    <item row="4" column="0">
+     <widget class="QGroupBox" name="groupBox">
       <property name="font">
        <font>
         <weight>75</weight>
-        <italic>false</italic>
         <bold>true</bold>
-        <underline>false</underline>
+       </font>
+      </property>
+      <property name="title">
+       <string>Instructions</string>
+      </property>
+      <property name="checkable">
+       <bool>true</bool>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_6">
+       <item>
+        <widget class="QGraphicsView" name="graphicsView">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="instruction1">
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>1. Start at the bottom-left corner of the word.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="instruction2">
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>2. Draw vertices counterclockwise.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="instruction3">
+         <property name="font">
+          <font>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>3. Use the same number of vertices on the top and bottom edges.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="9" column="0">
+     <widget class="QLabel" name="label_10">
+      <property name="font">
+       <font>
+        <weight>75</weight>
+        <bold>true</bold>
        </font>
       </property>
       <property name="text">
-       <string>Annotation Polygon Layer:</string>
+       <string>Dataset Info </string>
       </property>
      </widget>
     </item>
-    <item row="5" column="0">
+    <item row="11" column="0">
+     <spacer name="verticalSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>20</width>
+        <height>40</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+    <item row="7" column="0">
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
        <layout class="QVBoxLayout" name="verticalLayout_3">
@@ -79,7 +160,7 @@
            <enum>Qt::LeftToRight</enum>
           </property>
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -89,7 +170,7 @@
         <item>
          <widget class="QLabel" name="meanSlopeLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -99,7 +180,7 @@
         <item>
          <widget class="QLabel" name="complexityLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -109,7 +190,7 @@
         <item>
          <widget class="QLabel" name="wordTranscriptionLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -119,7 +200,7 @@
         <item>
          <widget class="QLabel" name="phraseTranscriptionLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -130,7 +211,7 @@
       </item>
      </layout>
     </item>
-    <item row="6" column="0">
+    <item row="8" column="0">
      <widget class="Line" name="line">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -138,39 +219,81 @@
      </widget>
     </item>
     <item row="0" column="0">
-     <layout class="QVBoxLayout" name="verticalLayout">
+     <layout class="QHBoxLayout" name="horizontalLayout_4">
       <item>
-       <widget class="QLabel" name="label">
-        <property name="font">
-         <font>
-          <weight>75</weight>
-          <bold>true</bold>
-         </font>
-        </property>
-        <property name="text">
-         <string>DEM Layer:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QgsMapLayerComboBox" name="demLayerCombo"/>
+       <layout class="QHBoxLayout" name="horizontalLayout_5">
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout">
+          <item>
+           <widget class="QLabel" name="label">
+            <property name="font">
+             <font>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="text">
+             <string>DEM Layer:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QgsMapLayerComboBox" name="demLayerCombo"/>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_7">
+          <item>
+           <widget class="QLabel" name="label_9">
+            <property name="font">
+             <font>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="text">
+             <string>Slope Layer:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QgsMapLayerComboBox" name="slopeLayerCombo"/>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </item>
      </layout>
     </item>
-    <item row="9" column="0">
-     <spacer name="verticalSpacer">
-      <property name="orientation">
-       <enum>Qt::Vertical</enum>
+    <item row="6" column="0">
+     <widget class="QLabel" name="annotationTitleLabel">
+      <property name="font">
+       <font>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
       </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>20</width>
-        <height>40</height>
-       </size>
+      <property name="text">
+       <string>Current Annotation Info:</string>
       </property>
-     </spacer>
+     </widget>
     </item>
-    <item row="8" column="0">
+    <item row="3" column="0">
+     <layout class="QHBoxLayout" name="horizontalLayout">
+      <item>
+       <widget class="QgsMapLayerComboBox" name="annotationLayerCombo"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="generateLayer">
+        <property name="text">
+         <string>Generate Layer</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item row="10" column="0">
      <layout class="QHBoxLayout" name="horizontalLayout_3">
       <item>
        <layout class="QVBoxLayout" name="verticalLayout_4">
@@ -209,7 +332,7 @@
         <item>
          <widget class="QLabel" name="labelCountLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -219,7 +342,7 @@
         <item>
          <widget class="QLabel" name="phraseCountLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -229,7 +352,7 @@
         <item>
          <widget class="QLabel" name="imageCountLabel">
           <property name="text">
-           <string>None Selected</string>
+           <string>null</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -247,50 +370,25 @@
       </item>
      </layout>
     </item>
-    <item row="2" column="0">
-     <layout class="QHBoxLayout" name="horizontalLayout">
-      <item>
-       <widget class="QgsMapLayerComboBox" name="annotationLayerCombo"/>
-      </item>
-      <item>
-       <widget class="QPushButton" name="generateLayer">
-        <property name="text">
-         <string>Generate Layer</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item row="4" column="0">
-     <widget class="QLabel" name="label_9">
-      <property name="font">
-       <font>
-        <weight>75</weight>
-        <bold>true</bold>
-       </font>
-      </property>
-      <property name="text">
-       <string>Current Annotation Info:</string>
-      </property>
-     </widget>
-    </item>
-    <item row="7" column="0">
-     <widget class="QLabel" name="label_10">
-      <property name="font">
-       <font>
-        <weight>75</weight>
-        <bold>true</bold>
-       </font>
-      </property>
-      <property name="text">
-       <string>Dataset Info </string>
-      </property>
-     </widget>
-    </item>
-    <item row="10" column="0">
+    <item row="13" column="0">
      <widget class="QPushButton" name="exportAnnotations">
       <property name="text">
        <string>Export Annotations</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QLabel" name="label_2">
+      <property name="font">
+       <font>
+        <weight>75</weight>
+        <italic>false</italic>
+        <bold>true</bold>
+        <underline>false</underline>
+       </font>
+      </property>
+      <property name="text">
+       <string>Annotation Polygon Layer:</string>
       </property>
      </widget>
     </item>
