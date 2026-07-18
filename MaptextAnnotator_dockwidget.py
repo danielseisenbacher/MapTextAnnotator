@@ -63,6 +63,7 @@ class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         "Max Slope": QVariant.Double,
         "Min Slope": QVariant.Double,
         "Complexity": QVariant.Double,
+        "Contrast": QVariant.Double,
         "Word uuid": QVariant.String,
         "Link to previous Word": QVariant.Bool,
         "Create Date": QVariant.DateTime

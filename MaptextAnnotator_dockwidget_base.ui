@@ -318,13 +318,6 @@
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QPushButton" name="altitudeHistogram">
-          <property name="text">
-           <string>Altitude Histogram</string>
-          </property>
-         </widget>
-        </item>
        </layout>
       </item>
       <item>
@@ -359,19 +352,12 @@
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QPushButton" name="slopeHistogram">
-          <property name="text">
-           <string>Slope Histogram</string>
-          </property>
-         </widget>
-        </item>
        </layout>
       </item>
      </layout>
     </item>
     <item row="13" column="0">
-     <widget class="QPushButton" name="exportAnnotations">
+     <widget class="QPushButton" name="exportAnnotationsButton">
       <property name="text">
        <string>Export Annotations</string>
       </property>

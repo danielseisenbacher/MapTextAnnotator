@@ -24,14 +24,16 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis import processing
 from qgis.PyQt.QtGui import QIcon, QPixmap
-from qgis.PyQt.QtWidgets import QAction, QGraphicsScene, QGraphicsPixmapItem
-from qgis.core import QgsVectorLayer, QgsFeatureRequest, QgsField, QgsProject, QgsRasterLayer, QgsGeometry, QgsCoordinateTransform, QgsPointXY, Qgis, QgsCoordinateReferenceSystem, QgsProcessingFeatureSourceDefinition
+from qgis.PyQt.QtWidgets import QAction, QGraphicsScene, QGraphicsPixmapItem, QFileDialog
+from qgis.core import QgsVectorLayer, QgsFeature, QgsField, QgsProject, QgsRasterLayer, QgsGeometry, QgsCoordinateTransform, QgsPointXY, Qgis, QgsCoordinateReferenceSystem, QgsProcessingFeatureSourceDefinition
 from osgeo import gdal, ogr
 import numpy as np
+import json
 
 
 # Import the code for the DockWidget
 from .MaptextAnnotator_dockwidget import MaptextAnnotatorDockWidget
+from .coco import annotation_creator
 import os.path
 
 
@@ -52,6 +54,12 @@ class MaptextAnnotator:
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
+
+        # setting for the zero-crossing "edge detection" raster function
+        self.zero_crossing_edge_detection_settings = {
+            "gaussianFilterWidth": 3,
+            "gaussianFilterThreshold": 5,
+        }
 
         # initialize locale
         locale = QSettings().value('locale/userLocale')[0:2]
@@ -233,6 +241,8 @@ class MaptextAnnotator:
                 self.dockwidget.generateLayer.clicked.connect(self.createPolyLayer)
                 self.dockwidget.annotationLayerCombo.layerChanged.connect(self.manageLayerConnections)  # react to changes
 
+                self.dockwidget.exportAnnotationsButton.clicked.connect(self.exportAnnotationsButtonClicked)
+
             # connect to provide cleanup on closing of dockwidget
 
             scene = QGraphicsScene()
@@ -384,6 +394,9 @@ class MaptextAnnotator:
         # calculate edge complexity
         self.calculate_edge_stats(topmost_rasterlayer, fid)
 
+        # get luminance range metric
+        self.calculate_contrast_stats(topmost_rasterlayer, fid)
+
 
     def showAnnotationInfoDefault(self):
         self.dockwidget.meanAltitudeLabel.setText("None Selected")
@@ -458,7 +471,7 @@ class MaptextAnnotator:
                 key=lambda lyr: layer_order.index(lyr)
             )
 
-            image_reference = topmost_layer.name()
+            image_reference = topmost_layer.source()
 
         if not self.current_annotation_layer.isEditCommandActive():
             self.current_annotation_layer.startEditing()
@@ -535,16 +548,21 @@ class MaptextAnnotator:
 
         if raster_layer and geom:
             # Transform from annotation layer CRS to raster CRS
+            transform = QgsCoordinateTransform(
+                self.current_annotation_layer.crs(),
+                raster_layer.crs() if raster_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs(),
+                QgsProject.instance()
+            )
             for vertex in geom.vertices():
-                pt = QgsPointXY(vertex.x(), vertex.y())
+                pt = transform.transform(QgsPointXY(vertex.x(), vertex.y()))
                 vertex_data.append(pt)
 
         if not self.current_annotation_layer.isEditCommandActive():
-            self.current_annotation_layer.startEditing()
+                self.current_annotation_layer.startEditing()
 
         field_idx = self.current_annotation_layer.fields().indexOf("Bounding Points")
-        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, str(vertex_data))
-
+        wkt_value = QgsGeometry.fromMultiPointXY(vertex_data).asWkt() if vertex_data else ""
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, wkt_value)
 
     def insert_bboxes(self, raster_layer, fid):
         current_feature = self.current_annotation_layer.getFeature(fid)
@@ -552,8 +570,15 @@ class MaptextAnnotator:
         vertex_data_obbox = []
 
         if raster_layer and current_feature.geometry():
+            transform = QgsCoordinateTransform(
+                self.current_annotation_layer.crs(),
+                raster_layer.crs() if raster_layer.crs().isValid() else self.canvas.mapSettings().destinationCrs(),
+                QgsProject.instance()
+            )
+            geom = QgsGeometry(current_feature.geometry())  # copy, don't mutate the feature's own geometry
+            geom.transform(transform)
+
             # minimum bb
-            geom = current_feature.geometry()
             bbox = geom.boundingBox()
             xmin, xmax, ymin, ymax = bbox.xMinimum(), bbox.xMaximum(), bbox.yMinimum(), bbox.yMaximum()
             for point in [QgsPointXY(xmin, ymin), QgsPointXY(xmax, ymax)]:
@@ -571,10 +596,12 @@ class MaptextAnnotator:
             self.current_annotation_layer.startEditing()
 
         field_idx = self.current_annotation_layer.fields().indexOf("Bounding Box")
-        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, str(vertex_data_bbox))
+        bbox_wkt = QgsGeometry.fromMultiPointXY(vertex_data_bbox).asWkt() if vertex_data_bbox else ""
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, bbox_wkt)
 
         obb_field_idx = self.current_annotation_layer.fields().indexOf("Oriented Bounding Box")
-        self.current_annotation_layer.changeAttributeValue(current_feature.id(), obb_field_idx, str(vertex_data_obbox))
+        obb_wkt = QgsGeometry.fromMultiPointXY(vertex_data_obbox).asWkt() if vertex_data_obbox else ""
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), obb_field_idx, obb_wkt)
 
 
     def insert_centroid_coordinates(self, fid):
@@ -613,17 +640,15 @@ class MaptextAnnotator:
             d1 = (points[1][0] - points[0][0]) ** 2 + (points[1][1] - points[0][1]) ** 2
             d2 = (points[2][0] - points[1][0]) ** 2 + (points[2][1] - points[1][1]) ** 2
             if d1 >= d2:
-                mid = ((points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2)
+                mid = QgsPointXY((points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2)
                 return [points[0], mid, points[1], points[2]]
             else:
-                mid = ((points[1][0] + points[2][0]) / 2, (points[1][1] + points[2][1]) / 2)
+                mid = QgsPointXY((points[1][0] + points[2][0]) / 2, (points[1][1] + points[2][1]) / 2)
                 return [points[0], points[1], mid, points[2]]
 
 
     def interpolate_bezier(self, points):
-        if len(points) == 4:
-            return points[0], points[1], points[2], points[3]
-
+        print(points)
         pts = np.array([[p.x(), p.y()] for p in points])
         n = len(pts)
 
@@ -659,7 +684,6 @@ class MaptextAnnotator:
     def insert_beziers(self, raster_layer, fid):
         current_feature = self.current_annotation_layer.getFeature(fid)
         vertex_data = [vertex for vertex in current_feature.geometry().vertices()][:-1] # last one is doubled
-        print(len(vertex_data))
 
         if len(vertex_data) < 4:
             self.iface.messageBar().pushMessage(
@@ -671,7 +695,6 @@ class MaptextAnnotator:
             return
 
         if len(vertex_data) % 2 != 0:
-            print(len(vertex_data))
             self.iface.messageBar().pushMessage(
                 "Warning",
                 "Annotation must have the same number of vertices on the upper and lower edge of the word. This feature will be ignored while annotation export.",
@@ -709,8 +732,11 @@ class MaptextAnnotator:
         upper_field_idx = self.current_annotation_layer.fields().indexOf("Upper Bezier")
         lower_field_idx = self.current_annotation_layer.fields().indexOf("Lower Bezier")
 
-        self.current_annotation_layer.changeAttributeValue(current_feature.id(), upper_field_idx, str(lower_bezier))
-        self.current_annotation_layer.changeAttributeValue(current_feature.id(), lower_field_idx, str(upper_bezier))
+        lower_wkt = QgsGeometry.fromMultiPointXY(list(lower_bezier)).asWkt()
+        upper_wkt = QgsGeometry.fromMultiPointXY(list(upper_bezier)).asWkt()
+
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), upper_field_idx, upper_wkt)
+        self.current_annotation_layer.changeAttributeValue(current_feature.id(), lower_field_idx, lower_wkt)
 
 
     def calculate_altitude_stats(self, fid):
@@ -830,55 +856,275 @@ class MaptextAnnotator:
         return
 
     def calculate_edge_stats(self, topmost_rasterlayer, fid):
-        """
-        Calculate edge complexity from the topmost rasterlayer to get an idea
-        of how convoluted a certain map extent looks under the label background.
-        Uses Canny edge detection over the true polygon extent (masked),
-        not just its bounding box.
-        """
         current_feature = self.current_annotation_layer.getFeature(fid)
         annotation_crs = self.current_annotation_layer.crs()
 
-        if topmost_rasterlayer is None:
+        try:
+            if topmost_rasterlayer is None:
+                self.iface.messageBar().pushMessage(
+                    "Warning",
+                    "No Raster Layer Found. Edge complexity calculation will not be performed.",
+                    level=Qgis.Warning,
+                    duration=5
+                )
+                return None
+
+            # Build a standalone single-feature memory layer just for this polygon
+            buffer_layer = QgsVectorLayer(
+                f"Polygon?crs={annotation_crs.authid()}",
+                "mask_temp",
+                "memory"
+            )
+
+            original_geom = current_feature.geometry()
+            area = original_geom.area()
+            buffer_distance = 0.1 * (area ** 0.5)
+            buffered_geom = original_geom.buffer(buffer_distance, 8)
+
+            buffer_provider = buffer_layer.dataProvider()
+            buffer_feature = QgsFeature()
+            buffer_feature.setGeometry(buffered_geom)
+            buffer_provider.addFeature(buffer_feature)
+            buffer_layer.updateExtents()
+
+            # --------------------------------------
+            # CLIP RASTER TO BUFFERED GEOMETRY
+            result = processing.run(
+                "gdal:cliprasterbymasklayer",
+                {
+                    'INPUT': topmost_rasterlayer,
+                    'MASK': buffer_layer,
+                    'SOURCE_CRS': topmost_rasterlayer.crs(),
+                    'TARGET_CRS': topmost_rasterlayer.crs(),
+                    'TARGET_EXTENT': None,
+                    'NODATA': None,
+                    'ALPHA_BAND': True,
+                    'CROP_TO_CUTLINE': True,
+                    'KEEP_RESOLUTION': False,
+                    'SET_RESOLUTION': False,
+                    'X_RESOLUTION': None,
+                    'Y_RESOLUTION': None,
+                    'MULTITHREADING': False,
+                    'OPTIONS': '',
+                    'DATA_TYPE': 0,
+                    'EXTRA': '',
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }
+            )
+
+            output_path = result['OUTPUT']
+            if output_path[-3:] == ".nc":
+                self.iface.messageBar().pushMessage(
+                    "Warning",
+                    "Set correct default processing raster type: Go to Settings → Options → Processing → General. Change 'Default output raster layer extension' from nc to tif",
+                    level=Qgis.Warning,
+                    duration=5
+                )
+
+
+
+            clipped_layer = QgsRasterLayer(output_path, f"clipped_{fid}")
+            if not clipped_layer.isValid():
+                self.iface.messageBar().pushMessage(
+                    "Warning",
+                    "Clipped raster output is not valid and could not be loaded.",
+                    level=Qgis.Warning,
+                    duration=5
+                )
+                return result
+
+            # --------------------------------------
+            #  RUN ZERO CROSSING EDGE DETECTION
+            result = processing.run("grass7:i.zc",
+                               {
+                                    'input': clipped_layer,
+                                    'width': self.zero_crossing_edge_detection_settings["gaussianFilterWidth"],
+                                    'threshold': self.zero_crossing_edge_detection_settings["gaussianFilterThreshold"],
+                                    'orientations': 1,
+                                    'output': 'TEMPORARY_OUTPUT',
+                                    'GRASS_REGION_PARAMETER': None,
+                                    'GRASS_REGION_CELLSIZE_PARAMETER': 0,
+                                    'GRASS_RASTER_FORMAT_OPT': '',
+                                    'GRASS_RASTER_FORMAT_META': ''
+                               }
+                           )
+
+            output_path = result['output']
+            if output_path[-3:] == ".nc":
+                self.iface.messageBar().pushMessage(
+                    "Warning",
+                    "Set correct default processing raster type: Go to Settings → Options → Processing → General. Change 'Default output raster layer extension' from nc to tif",
+                    level=Qgis.Warning,
+                    duration=5
+                )
+
+            zc_buffer_layer = QgsRasterLayer(output_path, f"zc_buffer_layer_{fid}")
+            #QgsProject.instance().addMapLayer(zc_buffer_layer)
+
+
+            # ----------------------------------------------------------------------
+            #  GET RASTER STATISTICS FOR ANNOTATION POLYGON AREA
+
+            # Build a standalone single-feature memory layer just for this polygon
+            original_layer = QgsVectorLayer(
+                f"Polygon?crs={annotation_crs.authid()}",
+                "mask_temp",
+                "memory"
+            )
+
+            original_geom = current_feature.geometry()
+            original_provider = original_layer.dataProvider()
+            original_feature = QgsFeature()
+            original_feature.setGeometry(original_geom)
+            original_provider.addFeature(original_feature)
+            original_layer.updateExtents()
+
+            result = processing.run(
+                "native:zonalhistogram",
+                {
+                    'INPUT_RASTER': zc_buffer_layer,
+                    'RASTER_BAND': 1,
+                    'INPUT_VECTOR': original_layer,
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }
+            )
+
+            statistics_layer = result['OUTPUT']  # this is already a QgsVectorLayer object, not a path
+
+            # Read the histogram counts off the single feature
+            stats_feature = next(statistics_layer.getFeatures())
+
+            field_names = [f.name() for f in statistics_layer.fields() if f.name().startswith('HISTO_')]
+            count_zero = stats_feature['HISTO_0'] if 'HISTO_0' in field_names else 0
+            count_one = stats_feature['HISTO_1'] if 'HISTO_1' in field_names else 0
+
+            total = count_zero + count_one
+            edge_density = (count_one / total) if total > 0 else 0.0
+            print(f"edge_density: {edge_density}")
+
+            if not self.current_annotation_layer.isEditCommandActive():
+                self.current_annotation_layer.startEditing()
+
+            field_idx = self.current_annotation_layer.fields().indexOf("Complexity")
+            self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, round(edge_density, 2))
+
+            self.dockwidget.complexityLabel.setText(str(round(edge_density, 2)))
+
+        except Exception as e:
             self.iface.messageBar().pushMessage(
                 "Warning",
-                "No Raster Layer Found. Edge complexity calculation will not be performed.",
+                f"Edge Complexity calculation failed: {e}",
                 level=Qgis.Warning,
                 duration=5
             )
             return None
 
-        processing.run(
-            "gdal:cliprasterbymasklayer",
-           {
-                'INPUT': '/home/seisi/Desktop/Masterarbeit/Masterarbeit/Data/JPG/3LA_4651-1_1874_ref.jpg',
-                'MASK': QgsProcessingFeatureSourceDefinition(
-                    'memory?geometry=Polygon&crs=EPSG:4326&field=Word%20Transcription:string(0,0)&field=Phrase%20Transcription:string(0,0)&field=Reference%20Image:string(0,0)&field=Lat:double(0,0)&field=Lon:double(0,0)&field=Bounding%20Points:string(0,0)&field=Bounding%20Box:string(0,0)&field=Oriented%20Bounding%20Box:string(0,0)&field=Upper%20Bezier:string(0,0)&field=Lower%20Bezier:string(0,0)&field=Mean%20Altitude:double(0,0)&field=Median%20Altitude:double(0,0)&field=Max%20Altitude:double(0,0)&field=Min%20Altitude:double(0,0)&field=Mean%20Slope:double(0,0)&field=Median%20Slope:double(0,0)&field=Max%20Slope:double(0,0)&field=Min%20Slope:double(0,0)&field=Complexity:double(0,0)&field=Word%20uuid:string(0,0)&field=Link%20to%20previous%20Word:boolean(0,0)&field=Create%20Date:datetime(0,0)&uid={d2e23a6d-6ecf-44ee-b20a-1bad950cfe8f}',
-                    selectedFeaturesOnly=False,
-                    featureLimit=-1,
-                    filterExpression='@id = 10',
-                    geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid
-                ),
-                'SOURCE_CRS': QgsCoordinateReferenceSystem('EPSG:25833'),
-                'TARGET_CRS': QgsCoordinateReferenceSystem('EPSG:25833'),
-                'TARGET_EXTENT': None,
-                'NODATA': None,
-                'ALPHA_BAND': False,
-                'CROP_TO_CUTLINE': True,
-                'KEEP_RESOLUTION': False,
-                'SET_RESOLUTION': False,
-                'X_RESOLUTION': None,
-                'Y_RESOLUTION': None,
-                'MULTITHREADING': False,
-                'OPTIONS': '',
-                'DATA_TYPE': 0,
-                'EXTRA': '',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-           }
-        )
+    def calculate_contrast_stats(self, topmost_rasterlayer, fid, lower_pct=5, upper_pct=95):
+        current_feature = self.current_annotation_layer.getFeature(fid)
+        annotation_crs = self.current_annotation_layer.crs()
 
+        try:
+            if topmost_rasterlayer is None:
+                self.iface.messageBar().pushMessage(
+                    "Warning",
+                    "No Raster Layer Found. Contrast calculation will not be performed.",
+                    level=Qgis.Warning,
+                    duration=5
+                )
+                return None
 
+            original_geom = current_feature.geometry()
 
+            # Memory layer for the bounding polygon itself
+            mask_layer = QgsVectorLayer(
+                f"Polygon?crs={annotation_crs.authid()}",
+                "contrast_mask_temp",
+                "memory"
+            )
+            provider = mask_layer.dataProvider()
+            feat = QgsFeature()
+            feat.setGeometry(original_geom)
+            provider.addFeature(feat)
+            mask_layer.updateExtents()
+
+            # Clip raster to the label polygon, keeping all bands
+            result = processing.run(
+                "gdal:cliprasterbymasklayer",
+                {
+                    'INPUT': topmost_rasterlayer,
+                    'MASK': mask_layer,
+                    'SOURCE_CRS': topmost_rasterlayer.crs(),
+                    'TARGET_CRS': topmost_rasterlayer.crs(),
+                    'TARGET_EXTENT': None,
+                    'NODATA': -9999,
+                    'ALPHA_BAND': False,
+                    'CROP_TO_CUTLINE': True,
+                    'KEEP_RESOLUTION': True,
+                    'SET_RESOLUTION': False,
+                    'X_RESOLUTION': None,
+                    'Y_RESOLUTION': None,
+                    'MULTITHREADING': False,
+                    'OPTIONS': '',
+                    'DATA_TYPE': 0,
+                    'EXTRA': '',
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }
+            )
+            output_path = result['OUTPUT']
+
+            ds = gdal.Open(output_path)
+            n_bands = ds.RasterCount
+
+            def robust_range(values, lower_pct, upper_pct):
+                if values.size < 10:
+                    return 0.0
+                lo = np.percentile(values, lower_pct)
+                hi = np.percentile(values, upper_pct)
+                return float(hi - lo)
+
+            band_ranges = []
+
+            for b in range(1, n_bands + 1):
+                band = ds.GetRasterBand(b)
+                nodata = band.GetNoDataValue()
+                arr = band.ReadAsArray().astype(np.float64)
+                valid = arr[arr != nodata] if nodata is not None else arr.flatten()
+                band_ranges.append(robust_range(valid, lower_pct, upper_pct))
+
+            # If RGB, also compute range on luminance for a perceptual view
+            if n_bands >= 3:
+                r = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
+                g = ds.GetRasterBand(2).ReadAsArray().astype(np.float64)
+                b_ = ds.GetRasterBand(3).ReadAsArray().astype(np.float64)
+                luminance = 0.299 * r + 0.587 * g + 0.114 * b_
+                luminance_range = robust_range(luminance.flatten(), lower_pct, upper_pct)
+                band_ranges.append(luminance_range)
+
+            # Take the strongest signal across whatever bands/luminance were checked
+            contrast_score = max(band_ranges) if band_ranges else 0.0
+
+            # Normalize to 0-1 assuming 8-bit data (0-255); adjust if your raster
+            # has a different value range (e.g. 16-bit, float reflectance, etc.)
+            normalized_contrast = min(contrast_score / 255.0, 1.0)
+
+            print(f"raw_range: {contrast_score}, normalized: {normalized_contrast}")
+
+            if not self.current_annotation_layer.isEditCommandActive():
+                self.current_annotation_layer.startEditing()
+
+            field_idx = self.current_annotation_layer.fields().indexOf("Contrast")
+            self.current_annotation_layer.changeAttributeValue(
+                current_feature.id(), field_idx, round(normalized_contrast, 2)
+            )
+
+        except Exception as e:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                f"Contrast calculation failed: {e}",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return None
 
 
     def calculate_slope_stats(self, fid):
@@ -995,4 +1241,50 @@ class MaptextAnnotator:
             self.current_annotation_layer.changeAttributeValue(current_feature.id(), field_idx, round(value, 2))
 
         self.dockwidget.meanSlopeLabel.setText(str(round(altitude_stats['Mean Slope'], 2)))
+        return
+
+    def exportAnnotationsButtonClicked(self):
+        if not self.current_annotation_layer:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                "Annotation cannot be exported. No annotation layer selected.",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.dockwidget,
+            "Export Annotations",
+            "annotations.json",
+            "JSON Files (*.json)"
+        )
+
+        if not file_path:
+            return
+
+        if not file_path.lower().endswith(".json"):
+            file_path += ".json"
+
+        annotation_dict = annotation_creator.build_annotations(self.current_annotation_layer)
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(annotation_dict, f, indent=2)
+        except Exception as e:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                f"Failed to write annotation file: {e}",
+                level=Qgis.Warning,
+                duration=5
+            )
+            return
+
+        self.iface.messageBar().pushMessage(
+            "Success",
+            f"Annotations exported to {file_path}",
+            level=Qgis.Success,
+            duration=5
+        )
+
         return
