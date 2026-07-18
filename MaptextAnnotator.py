@@ -250,6 +250,24 @@ class MaptextAnnotator:
             self.dockwidget.show()
             self.dockwidget.graphicsView.fitInView(pixmap_item, Qt.KeepAspectRatio)
 
+            try:
+                memory_path = os.path.join(self.plugin_dir, "layer_memory.txt")
+                with open(memory_path, "r") as f:
+                    memory_layers = f.readlines()
+            except FileNotFoundError:
+                memory_layers = []
+
+            dem_layer_name = memory_layers[0].strip() if len(memory_layers) > 0 else ""
+            slope_layer_name = memory_layers[1].strip() if len(memory_layers) > 1 else ""
+
+            dem_matches = QgsProject.instance().mapLayersByName(dem_layer_name) if dem_layer_name else []
+            if dem_matches:
+                self.dockwidget.demLayerCombo.setLayer(dem_matches[0])
+
+            slope_matches = QgsProject.instance().mapLayersByName(slope_layer_name) if slope_layer_name else []
+            if slope_matches:
+                self.dockwidget.slopeLayerCombo.setLayer(slope_matches[0])
+
             # dont show instructions when not toggled
             self.dockwidget.groupBox.toggled.connect(self.dockwidget.graphicsView.setVisible)
             self.dockwidget.groupBox.toggled.connect(self.dockwidget.instruction1.setVisible)
@@ -315,6 +333,9 @@ class MaptextAnnotator:
         current_layer.featureAdded.connect(self.updateAnnotationInfo)
         current_layer.featureDeleted.connect(self.updateAnnotationInfoAfterDelete)
 
+        self.dockwidget.demLayerCombo.layerChanged.connect(self.updateMemoryLayers)
+        self.dockwidget.slopeLayerCombo.layerChanged.connect(self.updateMemoryLayers)
+
         # CURRENT ANNOTATION INFO FOR SELECTED FEATURE
         self.current_annotation_layer.selectionChanged.connect(self.updateSelectedAnnotation)
 
@@ -322,6 +343,22 @@ class MaptextAnnotator:
         self.updateDatasetStats() # initialize the layer stat comboboxes
         current_layer.featureAdded.connect(self.updateDatasetStats)
         current_layer.featureDeleted.connect(self.updateDatasetStats)
+
+    def updateMemoryLayers(self, *args):
+        try:
+            memory_path = os.path.join(self.plugin_dir, "layer_memory.txt")
+            with open(memory_path, "w") as f:
+                f.writelines([
+                    self.dockwidget.demLayerCombo.currentText() + "\n",
+                    self.dockwidget.slopeLayerCombo.currentText() + "\n",
+                ])
+        except Exception as e:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                f"layer_memory could not be saved. {e}",
+                level=Qgis.Warning,
+                duration=5
+            )
 
 
     def updateDatasetStats(self, fid=None):
