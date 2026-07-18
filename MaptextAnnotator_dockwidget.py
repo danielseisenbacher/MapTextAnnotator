@@ -27,6 +27,7 @@ import os
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QVariant
 from qgis.core import QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
+from .resources import *
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'MaptextAnnotator_dockwidget_base.ui'))
 
