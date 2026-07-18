@@ -80,8 +80,6 @@ class MaptextAnnotator:
         self.toolbar = self.iface.addToolBar(u'MaptextAnnotator')
         self.toolbar.setObjectName(u'MaptextAnnotator')
 
-        #print "** INITIALIZING MaptextAnnotator"
-
         self.pluginIsActive = False
         self.dockwidget = None
 
@@ -194,7 +192,6 @@ class MaptextAnnotator:
     def onClosePlugin(self):
         """Cleanup necessary items here when plugin dockwidget is closed"""
 
-        #print "** CLOSING MaptextAnnotator"
 
         # disconnects
         self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
@@ -211,7 +208,6 @@ class MaptextAnnotator:
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
 
-        #print "** UNLOAD MaptextAnnotator"
 
         for action in self.actions:
             self.iface.removePluginMenu(
@@ -228,8 +224,6 @@ class MaptextAnnotator:
 
         if not self.pluginIsActive:
             self.pluginIsActive = True
-
-            #print "** STARTING MaptextAnnotator"
 
             # dockwidget may not exist if:
             #    first run of plugin
@@ -648,7 +642,6 @@ class MaptextAnnotator:
 
 
     def interpolate_bezier(self, points):
-        print(points)
         pts = np.array([[p.x(), p.y()] for p in points])
         n = len(pts)
 
@@ -1107,7 +1100,7 @@ class MaptextAnnotator:
             # has a different value range (e.g. 16-bit, float reflectance, etc.)
             normalized_contrast = min(contrast_score / 255.0, 1.0)
 
-            print(f"raw_range: {contrast_score}, normalized: {normalized_contrast}")
+            print(f"contrast: {normalized_contrast}")
 
             if not self.current_annotation_layer.isEditCommandActive():
                 self.current_annotation_layer.startEditing()
