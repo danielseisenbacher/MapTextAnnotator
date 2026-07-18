@@ -313,7 +313,7 @@ class MaptextAnnotator:
         # CURRENT ANNOATION INFO
         self.updateAnnotationInfo(selection_mode=True)
         current_layer.featureAdded.connect(self.updateAnnotationInfo)
-        current_layer.featureDeleted.connect(self.updateAnnotationInfo)
+        current_layer.featureDeleted.connect(self.updateAnnotationInfoAfterDelete)
 
         # CURRENT ANNOTATION INFO FOR SELECTED FEATURE
         self.current_annotation_layer.selectionChanged.connect(self.updateSelectedAnnotation)
@@ -343,8 +343,22 @@ class MaptextAnnotator:
         self.dockwidget.phraseCountLabel.setText(str(phrases))
         self.dockwidget.imageCountLabel.setText(str(image_count))
 
+    def updateAnnotationInfoAfterDelete(self, fid=None):
+        """
+        This function reacts to changes in the currently selected Annotation Polygon Layer Combobox layer to update
+        stats.
+        """
+        if not self.current_annotation_layer:
+            return
 
-    def updateAnnotationInfo(self, fid=None, selection_mode=False):
+        else:
+            self.dockwidget.annotationTitleLabel.setText("Last Created Annotation")
+
+        self.showAnnotationInfoDefault()
+        return
+
+
+    def updateAnnotationInfo(self, fid=None, selection_mode=False, deletion_mode=False):
         """
         This function reacts to changes in the currently selected Annotation Polygon Layer Combobox layer to update
         stats.
