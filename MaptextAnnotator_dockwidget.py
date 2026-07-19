@@ -67,7 +67,8 @@ class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         "Contrast": QVariant.Double,
         "Word uuid": QVariant.String,
         "Link to previous Word": QVariant.Bool,
-        "Create Date": QVariant.DateTime
+        "Create Date": QVariant.DateTime,
+        "Certainty": QVariant.Integer
     }
 
     closingPlugin = pyqtSignal()
