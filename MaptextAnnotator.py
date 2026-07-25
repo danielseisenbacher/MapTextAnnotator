@@ -471,6 +471,11 @@ class MaptextAnnotator:
 
 
     def updateSelectedAnnotation(self, selected, deselected, clearAndSelect):
+
+        if not self.current_annotation_layer.isEditable():
+            # Only recompute selection info while actively editing the layer
+            return
+
         if len(selected) != 1:
             # Only show the selected one if 1 item is selected, otherwise show none selected
             self.updateAnnotationInfo(selection_mode=True) # default to none
