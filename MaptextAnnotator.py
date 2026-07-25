@@ -431,13 +431,16 @@ class MaptextAnnotator:
             self.showAnnotationInfoDefault()
             return
 
-        # ANNOTATION IMAGE NAME
-        topmost_rasterlayer = self.insert_image_reference(fid)
-
-        # WORD AND PHRASE TRANSCRIPTION
+        # WORD AND PHRASE TRANSCRIPTION - cheap, no writes, safe to always refresh
         self.insert_transcriptions(fid)
 
+        if not self.current_annotation_layer.isEditable():
+            # Not editing: just show previously computed values, don't recompute/write
+            self.displayStoredStats(fid)
+            return
+
         # Bounding Geometry Coordinates in Raster Coordinates
+        topmost_rasterlayer = self.insert_image_reference(fid)
         self.insert_vertices(topmost_rasterlayer, fid)
 
         # Minimum Bounding Box and Minimum Oriented Bounding Box in Raster Coordinates
@@ -461,6 +464,30 @@ class MaptextAnnotator:
         # get luminance range metric
         self.calculate_contrast_stats(topmost_rasterlayer, fid)
 
+    def displayStoredStats(self, fid):
+        """
+        Show previously computed stats for a feature without recomputing them.
+        Used when browsing selections outside of edit mode.
+        """
+        feature = self.current_annotation_layer.getFeature(fid)
+        fields = self.current_annotation_layer.fields()
+
+        def get_val(field_name):
+            idx = fields.indexOf(field_name)
+            if idx == -1:
+                return None
+            val = feature[field_name]
+            return val if val not in (None, "") else None
+
+        mean_alt = get_val("Mean Altitude")
+        self.dockwidget.meanAltitudeLabel.setText(str(mean_alt) if mean_alt is not None else "None Selected")
+
+        mean_slope = get_val("Mean Slope")
+        self.dockwidget.meanSlopeLabel.setText(str(mean_slope) if mean_slope is not None else "None Selected")
+
+        complexity = get_val("Complexity")
+        self.dockwidget.complexityLabel.setText(str(complexity) if complexity is not None else "None Selected")
+
 
     def showAnnotationInfoDefault(self):
         self.dockwidget.meanAltitudeLabel.setText("None Selected")
@@ -471,10 +498,6 @@ class MaptextAnnotator:
 
 
     def updateSelectedAnnotation(self, selected, deselected, clearAndSelect):
-
-        if not self.current_annotation_layer.isEditable():
-            # Only recompute selection info while actively editing the layer
-            return
 
         if len(selected) != 1:
             # Only show the selected one if 1 item is selected, otherwise show none selected
