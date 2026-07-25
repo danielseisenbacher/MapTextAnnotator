@@ -314,6 +314,10 @@ class MaptextAnnotator:
                 self.current_annotation_layer.featureAdded.disconnect(self.updateDatasetStats)
                 self.current_annotation_layer.featureDeleted.disconnect(self.updateDatasetStats)
 
+                # SUSPEND DURING COMMIT -> otherwise logic reruns second time for every feature
+                self.current_annotation_layer.beforeCommitChanges.disconnect(self.suspendFeatureAddedDuringCommit)
+                self.current_annotation_layer.afterCommitChanges.disconnect(self.resumeFeatureAddedAfterCommit)
+
             except:
                 pass
             self.current_annotation_layer = None
@@ -343,6 +347,21 @@ class MaptextAnnotator:
         self.updateDatasetStats() # initialize the layer stat comboboxes
         current_layer.featureAdded.connect(self.updateDatasetStats)
         current_layer.featureDeleted.connect(self.updateDatasetStats)
+
+        # SUSPEND DURING COMMIT -> otherwise logic reruns second time for every feature
+        current_layer.beforeCommitChanges.connect(self.suspendFeatureAddedDuringCommit)
+        current_layer.afterCommitChanges.connect(self.resumeFeatureAddedAfterCommit)
+
+    def suspendFeatureAddedDuringCommit(self):
+        try:
+            self.current_annotation_layer.featureAdded.disconnect(self.updateAnnotationInfo)
+            self.current_annotation_layer.featureAdded.disconnect(self.updateDatasetStats)
+        except TypeError:
+            pass
+
+    def resumeFeatureAddedAfterCommit(self):
+        self.current_annotation_layer.featureAdded.connect(self.updateAnnotationInfo)
+        self.current_annotation_layer.featureAdded.connect(self.updateDatasetStats)
 
     def updateMemoryLayers(self, *args):
         try:
