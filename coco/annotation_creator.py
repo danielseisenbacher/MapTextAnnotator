@@ -46,6 +46,7 @@ def build_annotations(annotation_layer):
         # Geometry
         annotation_entry["bbox"] =  list(chain.from_iterable(translate_to_img_coords(feature["Bounding Box"], image_path)))
         annotation_entry["obbox"] = list(chain.from_iterable(translate_to_img_coords(feature["Oriented Bounding Box"], image_path)))
+        annotation_entry["bounding_points"] = list(chain.from_iterable(translate_to_img_coords(feature["Bounding Points"], image_path)))
 
         # Geographic Stats
         annotation_entry["mean_altitude"] = feature["Mean Altitude"]            # altitude stats

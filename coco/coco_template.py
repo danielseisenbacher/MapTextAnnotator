@@ -53,6 +53,7 @@ annotations_template = {
                             0,      # fill with character ints according to character map
                             0,
                         ],
+                        "bounding_points": [],
                         "bbox":
                         [
                             153.0,  # float bbox - 2 points
