@@ -41,6 +41,12 @@
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
+         <property name="verticalScrollBarPolicy">
+          <enum>Qt::ScrollBarAlwaysOff</enum>
+         </property>
+         <property name="horizontalScrollBarPolicy">
+          <enum>Qt::ScrollBarAlwaysOff</enum>
+         </property>
         </widget>
        </item>
        <item>
@@ -167,7 +173,7 @@
            <enum>Qt::LeftToRight</enum>
           </property>
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -177,7 +183,7 @@
         <item>
          <widget class="QLabel" name="meanSlopeLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -187,7 +193,7 @@
         <item>
          <widget class="QLabel" name="complexityLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -197,7 +203,7 @@
         <item>
          <widget class="QLabel" name="contrastLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -207,7 +213,7 @@
         <item>
          <widget class="QLabel" name="wordTranscriptionLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -217,7 +223,7 @@
         <item>
          <widget class="QLabel" name="phraseTranscriptionLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -236,7 +242,7 @@
      </widget>
     </item>
     <item row="0" column="0">
-     <layout class="QHBoxLayout" name="horizontalLayout_4">
+     <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="1,0">
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_5">
         <item>
@@ -260,7 +266,11 @@
            </widget>
           </item>
           <item>
-           <widget class="QgsMapLayerComboBox" name="demLayerCombo"/>
+           <widget class="QgsMapLayerComboBox" name="demLayerCombo">
+            <property name="toolTip">
+             <string>Optional. Leave empty to skip altitude statistics.</string>
+            </property>
+           </widget>
           </item>
          </layout>
          </widget>
@@ -286,14 +296,18 @@
            </widget>
           </item>
           <item>
-           <widget class="QgsMapLayerComboBox" name="slopeLayerCombo"/>
+           <widget class="QgsMapLayerComboBox" name="slopeLayerCombo">
+            <property name="toolTip">
+             <string>Optional. Leave empty to skip slope statistics.</string>
+            </property>
+           </widget>
           </item>
          </layout>
          </widget>
         </item>
        </layout>
       </item>
-      <item>
+      <item alignment="Qt::AlignRight|Qt::AlignBottom">
        <widget class="QToolButton" name="settingsButton">
         <property name="toolTip">
          <string>Settings</string>
@@ -378,7 +392,7 @@
         <item>
          <widget class="QLabel" name="labelCountLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -388,7 +402,7 @@
         <item>
          <widget class="QLabel" name="phraseCountLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
@@ -398,7 +412,7 @@
         <item>
          <widget class="QLabel" name="imageCountLabel">
           <property name="text">
-           <string>null</string>
+           <string>None Selected</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>

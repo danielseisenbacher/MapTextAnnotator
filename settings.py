@@ -95,9 +95,10 @@ def coerce(key, value):
                 raise ValueError(value)
             return bool(value)
         if isinstance(default, int):
-            if isinstance(value, float) and not value.is_integer():
+            number = float(value)
+            if not number.is_integer():
                 raise ValueError(value)
-            return int(float(value))
+            return int(number)
         if isinstance(default, float):
             result = float(value)
             if not math.isfinite(result):

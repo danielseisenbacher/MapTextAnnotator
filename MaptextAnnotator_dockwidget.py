@@ -22,18 +22,22 @@
  ***************************************************************************/
 """
 
+import math
 import os
 
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal
-from qgis.core import QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
+from qgis.PyQt.QtCore import QEvent, Qt, pyqtSignal
+from qgis.PyQt.QtGui import QPixmap
+from qgis.core import QgsApplication, QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
 
 from . import schema
+from . import settings as plugin_settings
 from .resources import *  # noqa: F401,F403  registers the Qt resources (icon, example image)
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'MaptextAnnotator_dockwidget_base.ui'))
 
 NONE_SELECTED = "None Selected"
+EXAMPLE_IMAGE = ":/plugins/MaptextAnnotator/example.png"
 
 
 def layer_has_required_fields(layer, required_fields):
@@ -45,6 +49,25 @@ def layer_has_required_fields(layer, required_fields):
     return all(field_types.get(name) == ftype for name, ftype in required_fields.items())
 
 
+def _number_text(value):
+    """Format a stat value with 2 decimals; None, NULL and non-numeric values
+    show NONE_SELECTED."""
+    if value is None:
+        return NONE_SELECTED
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return NONE_SELECTED
+    return f"{number:.2f}" if math.isfinite(number) else NONE_SELECTED
+
+
+def _plain_text(value):
+    """str(value), or NONE_SELECTED for None, NULL and empty values."""
+    if value is None or not str(value) or (hasattr(value, "isNull") and value.isNull()):
+        return NONE_SELECTED
+    return str(value)
+
+
 class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     closingPlugin = pyqtSignal()
@@ -52,27 +75,87 @@ class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.demLayerCombo.setFilters(QgsMapLayerProxyModel.RasterLayer)
-        self.slopeLayerCombo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+
+        self.settingsButton.setIcon(QgsApplication.getThemeIcon("/mActionOptions.svg"))
+
+        # DEM and slope are optional: offer rasters only and start empty. Without
+        # setLayer(None) the combos auto-select the first raster (the map scan).
+        for combo in (self.demLayerCombo, self.slopeLayerCombo):
+            combo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+            combo.setAllowEmptyLayer(True)
+            combo.setLayer(None)
         self.annotationLayerCombo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
 
+        # Collapsing the instructions box hides its contents.
+        for widget in (self.graphicsView, self.instruction1, self.instruction2, self.instruction3):
+            self.groupBox.toggled.connect(widget.setVisible)
+
+        self._example_scene = QtWidgets.QGraphicsScene(self)
+        self._example_item = self._example_scene.addPixmap(QPixmap(EXAMPLE_IMAGE))
+        self.graphicsView.setScene(self._example_scene)
+        # fitInView needs the final widget size: refit whenever the view is shown or resized.
+        self.graphicsView.installEventFilter(self)
+
         self.filter_unfit_rows()
+        self._project_connected = False
         QgsProject.instance().layersAdded.connect(self.filter_unfit_rows)
         QgsProject.instance().layersRemoved.connect(self.filter_unfit_rows)
+        self._project_connected = True
 
     def filter_unfit_rows(self, *args):
+        """Hide polygon layers without the annotation core fields from the annotation combo."""
         core = {name: schema.FIELDS[name] for name in schema.CORE_FIELDS}
-        excluded = [
-            layer for layer in QgsProject.instance().mapLayers().values()
-            if not layer_has_required_fields(layer, core)
-        ]
-        self.annotationLayerCombo.setExceptedLayerList(excluded)
+        excluded = []
+        for layer in QgsProject.instance().mapLayers().values():
+            try:
+                if not layer_has_required_fields(layer, core):
+                    excluded.append(layer)
+            except RuntimeError:
+                # The C++ layer is already gone; it can't be offered anyway.
+                continue
+        try:
+            self.annotationLayerCombo.setExceptedLayerList(excluded)
+        except RuntimeError:
+            # The dock was deleted without teardown().
+            pass
+
+    def fit_example_image(self):
+        """Scale the example image to the current size of the graphics view."""
+        if self._example_item.pixmap().isNull():
+            return
+        self.graphicsView.fitInView(self._example_item, Qt.KeepAspectRatio)
+
+    def eventFilter(self, watched, event):
+        try:
+            if watched is self.graphicsView and event.type() in (QEvent.Show, QEvent.Resize):
+                self.fit_example_image()
+        except (AttributeError, RuntimeError):
+            # Events can arrive while the dock is being constructed or destroyed.
+            pass
+        return super().eventFilter(watched, event)
 
     # -- contract for the controller (MaptextAnnotator.py) ------------------
 
     def apply_settings(self, settings):
         """Show / hide the DEM and slope pickers, stat rows and instructions
         according to a settings.PluginSettings instance."""
+        self.demLayerWidget.setVisible(settings.stat_enabled("altitude"))
+        self.slopeLayerWidget.setVisible(settings.stat_enabled("slope"))
+
+        rows = {
+            "altitude": (self.meanAltitudeCaption, self.meanAltitudeLabel),
+            "slope": (self.meanSlopeCaption, self.meanSlopeLabel),
+            "edge_complexity": (self.complexityCaption, self.complexityLabel),
+            "contrast": (self.contrastCaption, self.contrastLabel),
+        }
+        for group, widgets in rows.items():
+            enabled = settings.stat_enabled(group)
+            for widget in widgets:
+                widget.setVisible(enabled)
+
+        self.groupBox.setVisible(bool(settings.get(plugin_settings.SHOW_INSTRUCTIONS)))
+        # Lives outside the DEM / slope containers, but make sure it never disappears.
+        self.settingsButton.setVisible(True)
 
     def show_stats(self, values):
         """Show headline stats. values: {"altitude", "slope", "edge_complexity",
@@ -84,12 +167,11 @@ class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "contrast": self.contrastLabel,
         }
         for key, label in labels.items():
-            value = values.get(key)
-            label.setText(NONE_SELECTED if value is None else f"{value:.2f}")
+            label.setText(_number_text(values.get(key)))
 
     def show_transcription(self, word, phrase):
-        self.wordTranscriptionLabel.setText(word or NONE_SELECTED)
-        self.phraseTranscriptionLabel.setText(phrase or NONE_SELECTED)
+        self.wordTranscriptionLabel.setText(_plain_text(word))
+        self.phraseTranscriptionLabel.setText(_plain_text(phrase))
 
     def show_dataset_counts(self, labels, phrases, images):
         """Counts of the current annotation layer; None shows NONE_SELECTED."""
@@ -102,7 +184,16 @@ class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.show_transcription(None, None)
 
     def teardown(self):
-        """Disconnect from QgsProject signals before the dock is deleted."""
+        """Disconnect from QgsProject signals before the dock is deleted. Safe to call twice."""
+        if not self._project_connected:
+            return
+        self._project_connected = False
+        project = QgsProject.instance()
+        for signal in (project.layersAdded, project.layersRemoved):
+            try:
+                signal.disconnect(self.filter_unfit_rows)
+            except (TypeError, RuntimeError):
+                pass
 
     def closeEvent(self, event):
         self.closingPlugin.emit()

@@ -16,9 +16,13 @@ import shutil
 import sys
 import tempfile
 import uuid
-import warnings
 
-warnings.filterwarnings("ignore", message="Neither gdal.UseExceptions", category=FutureWarning)
+from osgeo import gdal, ogr, osr
+
+# Explicitly select GDAL's current default (no exceptions) to silence its FutureWarning;
+# plugin code must work without exceptions enabled.
+for _module in (gdal, ogr, osr):
+    _module.DontUseExceptions()
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE_NAME = "maptextannotator"
