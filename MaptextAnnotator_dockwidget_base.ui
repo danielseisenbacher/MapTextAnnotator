@@ -116,23 +116,30 @@
       <item>
        <layout class="QVBoxLayout" name="verticalLayout_3">
         <item>
-         <widget class="QLabel" name="label_3">
+         <widget class="QLabel" name="meanAltitudeCaption">
           <property name="text">
            <string>Mean Altitude</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="label_5">
+         <widget class="QLabel" name="meanSlopeCaption">
           <property name="text">
            <string>Mean Slope</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="label_7">
+         <widget class="QLabel" name="complexityCaption">
           <property name="text">
            <string>Edge Complexity</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="contrastCaption">
+          <property name="text">
+           <string>Contrast</string>
           </property>
          </widget>
         </item>
@@ -188,6 +195,16 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="contrastLabel">
+          <property name="text">
+           <string>null</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QLabel" name="wordTranscriptionLabel">
           <property name="text">
            <string>null</string>
@@ -223,7 +240,12 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_5">
         <item>
+         <widget class="QWidget" name="demLayerWidget">
          <layout class="QVBoxLayout" name="verticalLayout">
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="label">
             <property name="font">
@@ -241,9 +263,15 @@
            <widget class="QgsMapLayerComboBox" name="demLayerCombo"/>
           </item>
          </layout>
+         </widget>
         </item>
         <item>
+         <widget class="QWidget" name="slopeLayerWidget">
          <layout class="QVBoxLayout" name="verticalLayout_7">
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="label_9">
             <property name="font">
@@ -261,12 +289,25 @@
            <widget class="QgsMapLayerComboBox" name="slopeLayerCombo"/>
           </item>
          </layout>
+         </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QToolButton" name="settingsButton">
+        <property name="toolTip">
+         <string>Settings</string>
+        </property>
+        <property name="text">
+         <string>Settings</string>
+        </property>
+       </widget>
       </item>
      </layout>
     </item>
     <item row="6" column="0">
+     <layout class="QHBoxLayout" name="annotationTitleLayout">
+      <item>
      <widget class="QLabel" name="annotationTitleLabel">
       <property name="font">
        <font>
@@ -278,6 +319,18 @@
        <string>Current Annotation Info:</string>
       </property>
      </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="recomputeButton">
+        <property name="toolTip">
+         <string>Recompute all statistics of the selected annotation (layer must be in edit mode)</string>
+        </property>
+        <property name="text">
+         <string>Recompute Selected</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </item>
     <item row="3" column="0">
      <layout class="QHBoxLayout" name="horizontalLayout">

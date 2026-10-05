@@ -24,83 +24,85 @@
 
 import os
 
-from qgis.PyQt import QtGui, QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal, QVariant
+from qgis.PyQt import QtWidgets, uic
+from qgis.PyQt.QtCore import pyqtSignal
 from qgis.core import QgsMapLayerProxyModel, QgsProject, QgsVectorLayer
-from .resources import *
+
+from . import schema
+from .resources import *  # noqa: F401,F403  registers the Qt resources (icon, example image)
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'MaptextAnnotator_dockwidget_base.ui'))
 
+NONE_SELECTED = "None Selected"
+
+
 def layer_has_required_fields(layer, required_fields):
+    """True if `layer` is a vector layer with every field in `required_fields`
+    (a {name: QVariant type} mapping) and matching types."""
     if not isinstance(layer, QgsVectorLayer):
         return False
-    field_names = {f.name(): f.type() for f in layer.fields()}
-    for name, ftype in required_fields.items():
-        if name not in field_names or field_names[name] != ftype:
-            return False
-    return True
-
+    field_types = {f.name(): f.type() for f in layer.fields()}
+    return all(field_types.get(name) == ftype for name, ftype in required_fields.items())
 
 
 class MaptextAnnotatorDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
-    required_fields = {
-        "Word Transcription": QVariant.String,
-        "Phrase Transcription": QVariant.String,
-        "Reference Image": QVariant.String,
-        "Lat": QVariant.Double,
-        "Lon": QVariant.Double,
-        "Bounding Points": QVariant.String,
-        "Bounding Box": QVariant.String,
-        "Oriented Bounding Box": QVariant.String,
-        "Upper Bezier": QVariant.String,
-        "Lower Bezier": QVariant.String,
-        "Mean Altitude": QVariant.Double,
-        "Median Altitude": QVariant.Double,
-        "Max Altitude": QVariant.Double,
-        "Min Altitude": QVariant.Double,
-        "Mean Slope": QVariant.Double,
-        "Median Slope": QVariant.Double,
-        "Max Slope": QVariant.Double,
-        "Min Slope": QVariant.Double,
-        "Complexity": QVariant.Double,
-        "Contrast": QVariant.Double,
-        "Word uuid": QVariant.String,
-        "Link to previous Word": QVariant.Bool,
-        "Create Date": QVariant.DateTime,
-        "Certainty": QVariant.Int
-    }
-
     closingPlugin = pyqtSignal()
 
     def __init__(self, parent=None):
-        """Constructor."""
-        super(MaptextAnnotatorDockWidget, self).__init__(parent)
-        # Set up the user interface from Designer.
-        # After setupUI you can access any designer object by doing
-        # self.<objectname>, and you can use autoconnect slots - see
-        # http://doc.qt.io/qt-5/designer-using-a-ui-file.html
-        # #widgets-and-dialogs-with-auto-connect
+        super().__init__(parent)
         self.setupUi(self)
         self.demLayerCombo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+        self.slopeLayerCombo.setFilters(QgsMapLayerProxyModel.RasterLayer)
         self.annotationLayerCombo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
 
-        # Run once on init
         self.filter_unfit_rows()
-
-        # Recheck whenever layers are added or removed
         QgsProject.instance().layersAdded.connect(self.filter_unfit_rows)
         QgsProject.instance().layersRemoved.connect(self.filter_unfit_rows)
 
     def filter_unfit_rows(self, *args):
-        excluded = []
-        for layer in QgsProject.instance().mapLayers().values():
-            if not isinstance(layer, QgsVectorLayer):
-                excluded.append(layer)
-                continue
-            if not layer_has_required_fields(layer, self.required_fields):
-                excluded.append(layer)
+        core = {name: schema.FIELDS[name] for name in schema.CORE_FIELDS}
+        excluded = [
+            layer for layer in QgsProject.instance().mapLayers().values()
+            if not layer_has_required_fields(layer, core)
+        ]
         self.annotationLayerCombo.setExceptedLayerList(excluded)
+
+    # -- contract for the controller (MaptextAnnotator.py) ------------------
+
+    def apply_settings(self, settings):
+        """Show / hide the DEM and slope pickers, stat rows and instructions
+        according to a settings.PluginSettings instance."""
+
+    def show_stats(self, values):
+        """Show headline stats. values: {"altitude", "slope", "edge_complexity",
+        "contrast"} -> float or None (None shows NONE_SELECTED)."""
+        labels = {
+            "altitude": self.meanAltitudeLabel,
+            "slope": self.meanSlopeLabel,
+            "edge_complexity": self.complexityLabel,
+            "contrast": self.contrastLabel,
+        }
+        for key, label in labels.items():
+            value = values.get(key)
+            label.setText(NONE_SELECTED if value is None else f"{value:.2f}")
+
+    def show_transcription(self, word, phrase):
+        self.wordTranscriptionLabel.setText(word or NONE_SELECTED)
+        self.phraseTranscriptionLabel.setText(phrase or NONE_SELECTED)
+
+    def show_dataset_counts(self, labels, phrases, images):
+        """Counts of the current annotation layer; None shows NONE_SELECTED."""
+        for label, value in ((self.labelCountLabel, labels), (self.phraseCountLabel, phrases),
+                             (self.imageCountLabel, images)):
+            label.setText(NONE_SELECTED if value is None else str(value))
+
+    def reset_annotation_info(self):
+        self.show_stats({})
+        self.show_transcription(None, None)
+
+    def teardown(self):
+        """Disconnect from QgsProject signals before the dock is deleted."""
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
