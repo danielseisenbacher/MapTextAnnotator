@@ -1,47 +1,46 @@
-# This file contains metadata for your plugin.
-
-# This file should be included when you package your plugin.# Mandatory items:
-
 [general]
 name=MapText Annotator
-qgisMinimumVersion=3.0
-description=This plugin can be used to annotate text on maps
-version=0.1
+qgisMinimumVersion=3.34
+description=Annotate text on maps as polygons with transcriptions and export them to COCO-style JSON for text spotting models.
+version=0.2.0
 author=Daniel Seisenbacher
 email=dasebdu@gmail.com
 
-about=Annotate and geographically enrich text labels on maps for machine learning research. - Draw bounding boxes and bezier lines around map text and transcribe label content - Sample underlying DEM to extract geographic attributes per label - Enable correlation analysis between geographic complexity and text spotting performance - Export annotations
+about=Annotate text labels on scanned maps for machine learning research.
+    Draw each word as a polygon on a georeferenced map raster, enter its transcription and certainty, and link words into phrases.
+    For every label the plugin stores cubic bezier curves of the top and bottom edge, an axis-aligned and an oriented bounding box,
+    and optional statistics: altitude and slope from DEM and slope rasters, edge complexity (GRASS i.zc), contrast and the centroid in WGS 84.
+    Annotations export to COCO-style JSON in image pixel coordinates (ABCNet / DeepSolo bezier format, selectable bbox format).
+    The GRASS GIS provider is only needed for edge complexity. See the README for drawing rules, settings and the export format.
 
 tracker=https://github.com/danielseisenbacher/MapTextAnnotator/issues
 repository=https://github.com/danielseisenbacher/MapTextAnnotator
-# End of mandatory metadata
-
-# Recommended items:
-
-hasProcessingProvider=no
-# Uncomment the following line and add your changelog:
-# changelog=
-
-# Tags are comma separated with spaces allowed
-tags=python
-
 homepage=https://github.com/danielseisenbacher/MapTextAnnotator
+
+changelog=0.2.0
+    - Settings dialog (dock Settings button or Plugins menu); settings are remembered across sessions
+    - DEM and slope layers are optional; each statistic can be turned off and is then neither computed nor exported
+    - Selectable export bbox format: xyxy (default), xywh (COCO) or polygon
+    - Selectable bezier point order: abcnet (default) or legacy (v0.1 order)
+    - DEM, slope and annotation layer choices are stored in the project
+    - Statistics are recomputed on add and geometry edits; selecting only displays stored values; new Recompute Selected button
+    - Fix: repeated exports no longer accumulate annotations
+    - Fix: exported bbox y values were flipped
+    - Fix: crash when no raster lies under a polygon; features without a usable reference image are skipped and reported
+    - Fix: Lat/Lon are stored in WGS 84 (EPSG:4326)
+    - Fix: the DEM, slope and web/XYZ layers are never used as reference image
+    - Fix: contrast only uses pixels inside the polygon
+    - Fix: layer signals are disconnected reliably; one failing statistic no longer stops the others
+    - Fix: plugin unload removes the dock and all connections
+    - Unknown characters are encoded as 95 (unknown) instead of 96 (padding)
+    - Unit and integration tests; tools/draw_annotations.py viewer for exports
+    0.1
+    - First version
+
+tags=annotation, text, maps, historical maps, machine learning, coco, dem
 category=Plugins
 icon=icon.png
-# experimental flag
+hasProcessingProvider=no
 experimental=True
-
-# deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
-
-# Since QGIS 3.8, a comma separated list of plugins to be installed
-# (or upgraded) can be specified.
-# Check the documentation for more information.
-# plugin_dependencies=
-
-Category of the plugin: Raster, Vector, Database or Web
-# category=
-
-# If the plugin can run on QGIS Server.
 server=False
-
