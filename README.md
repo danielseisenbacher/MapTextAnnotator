@@ -2,6 +2,8 @@
 
 A QGIS plugin for annotating text on scanned maps. Draw a polygon around each word, transcribe it, and export the annotations as COCO-style JSON for text spotting models such as ABCNet or DeepSolo. Each label can also get statistics: altitude and slope (from your DEM and slope rasters), edge complexity, contrast and centroid.
 
+<p align="center"><img src="docs/dock.png" alt="The MapText Annotator dock showing the selected annotation's statistics" width="420"></p>
+
 ## Requirements
 
 - QGIS 3.34 or newer
